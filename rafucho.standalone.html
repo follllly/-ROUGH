@@ -15,6 +15,7 @@
 
 
 
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
@@ -277,7 +278,7 @@ body.viewing #stage{cursor:default}
       <div>
         <h3>使い方</h3>
         <p style="margin-bottom:8px">ページめくり：指で描かない設定のとき、指で紙を左へはらうと次のページ（最後のページなら新しい紙）、右へはらうと前のページ。右上の帯のボタンでページの一覧を下に出し入れでき、▶で描かずに通して見られます（左右にはらう、画面の左右をタップ、←→キーでめくれます）。</p>
-        <p>2本指でつまむと拡大（最大1.5倍）、そのまま動かすと移動。文字は「文字」を選んで紙をタップ。出てきた枠はなぞって移動、右下の丸をドラッグで大きさを変えます。枠をタップするともう一度書き直せます。</p>
+        <p>2本指でつまむと拡大（最大3倍）、そのまま動かすと移動。文字は「文字」を選んで紙をタップ。出てきた枠はなぞって移動、右下の丸をドラッグで大きさを変えます。枠をタップするともう一度書き直せます。</p>
         <p style="margin-top:8px">ペンと消しゴムは、選んでいる方のボタンをもう一度タップすると入れ替わります（キーボードならEキー）。ペンの先と反対側の消しゴム、または側面ボタンに対応したペンでは、押している間だけ消しゴムになります。</p>
       </div>
     </div>
@@ -327,7 +328,7 @@ body.viewing #stage{cursor:default}
     manga:[['1','1コマ'],['rows2','2段'],['rows3','3段'],['grid4','田の字'],['five','5コマ']],
     slide:[['title','タイトル'],['cols2','2カラム'],['cols3','3カラム'],['imgtext','図と文']]
   };
-  var K=2, MAXZ=1.5, LH=1.35, PAPER='#fffdf7', INK='#1d1d21';
+  var K=3, MAXZ=3, EXP=2, THS=0.4, LH=1.35, PAPER='#fffdf7', INK='#1d1d21';
   var KEY='rafucho-v2';
   var SWATCHES=['#1d1d21','#6b6b72','#d6342c','#f08a24','#f2c744','#3f9a55','#2f5bd8','#8e5bd0'];
   var RANGES={pen:[1,40,'size'],eraser:[6,90,'esize'],text:[16,200,'tsize']};
@@ -898,8 +899,9 @@ body.viewing #stage{cursor:default}
   $('#bView').addEventListener('click',function(){setViewing(true);});
   $('#vClose').addEventListener('click',function(){setViewing(false);});
   $('#bZoom').addEventListener('click',function(){
-    if(view.z>1) zoomAt(1,window.innerWidth/2,window.innerHeight/2);
-    else zoomAt(MAXZ,window.innerWidth/2,window.innerHeight/2);
+    // ×1 → ×2 → ×3 → ×1 の順に切り替える
+    var nz=view.z<1.5?2:(view.z<2.5?3:1);
+    zoomAt(nz,window.innerWidth/2,window.innerHeight/2);
   });
 
   var tmpC=document.createElement('canvas');
@@ -910,8 +912,8 @@ body.viewing #stage{cursor:default}
     var x=th.getContext('2d');x.fillStyle=PAPER;x.fillRect(0,0,th.width,th.height);
     var src=canvas;
     if(!isCur){
-      tmpC.width=Math.round(pg.w*K);tmpC.height=Math.round(pg.h*K);
-      var tc=tmpC.getContext('2d');renderItems(tc,pg.items,state.mode,K);src=tmpC;
+      tmpC.width=Math.round(pg.w*THS);tmpC.height=Math.round(pg.h*THS);
+      var tc=tmpC.getContext('2d');renderItems(tc,pg.items,state.mode,THS);src=tmpC;
     }
     x.drawImage(src,0,0,th.width,th.height);
     pg._th=th;pg._ti=pg.items;pg._tm=state.mode;pg._tw=pg.w;pg._tz=pg.h;
@@ -1412,7 +1414,7 @@ body.viewing #stage{cursor:default}
     var x=c.getContext('2d');x.fillStyle='#e7e4dc';x.fillRect(0,0,c.width,c.height);
     pages.forEach(function(pg,i){
       var px=pad+(i%cols)*(cellW+pad), py=pad+Math.floor(i/cols)*(cellH+pad);
-      x.drawImage(pageToCanvas(pg,mode,K),px,py,cellW,Math.round(cellW*pg.h/pg.w));
+      x.drawImage(pageToCanvas(pg,mode,1),px,py,cellW,Math.round(cellW*pg.h/pg.w));
       x.fillStyle='#555';x.font='16px sans-serif';x.fillText(String(i+1),px+4,py+cellH+18);
     });
     return c;
@@ -1490,10 +1492,10 @@ body.viewing #stage{cursor:default}
   });
   $('#exPdf').addEventListener('click',exportPDF);
   $('#exPng').addEventListener('click',function(){
-    canvasBlob(pageToCanvas(page(),state.mode,K),'image/png').then(function(b){deliver(b,'rafucho-p'+(doc().cur+1)+'.png');});
+    canvasBlob(pageToCanvas(page(),state.mode,EXP),'image/png').then(function(b){deliver(b,'rafucho-p'+(doc().cur+1)+'.png');});
   });
   $('#exJpg').addEventListener('click',function(){
-    canvasBlob(pageToCanvas(page(),state.mode,K),'image/jpeg',0.9).then(function(b){deliver(b,'rafucho-p'+(doc().cur+1)+'.jpg');});
+    canvasBlob(pageToCanvas(page(),state.mode,EXP),'image/jpeg',0.9).then(function(b){deliver(b,'rafucho-p'+(doc().cur+1)+'.jpg');});
   });
   $('#exSheet').addEventListener('click',function(){
     canvasBlob(sheetToCanvas(),'image/png').then(function(b){deliver(b,'rafucho-list.png');});
