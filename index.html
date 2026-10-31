@@ -13,6 +13,7 @@
 
 
 
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
@@ -124,7 +125,29 @@ body.editing .chrome{display:none}
 .view img{max-width:100%;display:block;margin:0 auto;-webkit-touch-callout:default}
 #toast{position:fixed;left:50%;top:calc(70px + env(safe-area-inset-top));transform:translateX(-50%);background:var(--ink);color:var(--panel);padding:8px 14px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90%;z-index:20}
 #toast.show{opacity:1}
-@media (prefers-reduced-motion:reduce){.chrome,#toast{transition:none}}
+/* page strip (thumbnails along the bottom) */
+:root{--stripH:96px}
+#strip{position:fixed;left:0;right:0;bottom:0;height:calc(var(--stripH) + env(safe-area-inset-bottom));padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);z-index:4;display:flex;gap:8px;overflow-x:auto;align-items:center;scrollbar-width:thin}
+#strip[hidden]{display:none}
+.stile{flex:none;height:72px;border:2px solid var(--line);border-radius:6px;padding:0;background:var(--paper);position:relative;overflow:hidden;cursor:pointer;display:block}
+.stile canvas{display:block;height:68px}
+.stile[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.stile span{position:absolute;left:3px;bottom:2px;font-size:10px;line-height:1;background:rgba(255,255,255,.88);color:#222;border-radius:3px;padding:2px 4px}
+.stile.add{width:52px;display:grid;place-items:center;font-size:22px;color:var(--muted);background:var(--bg)}
+body.strip-on .dock{bottom:calc(var(--stripH) + 10px + env(safe-area-inset-bottom))}
+body.strip-on #pop{bottom:calc(var(--stripH) + 78px + env(safe-area-inset-bottom))}
+body.strip-on #dockOpen{bottom:calc(var(--stripH) + 10px + env(safe-area-inset-bottom))}
+/* read-through mode */
+#viewBar{position:fixed;right:calc(8px + env(safe-area-inset-right));top:calc(8px + env(safe-area-inset-top));z-index:6;display:none;gap:4px;align-items:center;padding:4px 4px 4px 12px;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 4px 14px rgba(0,0,0,.16);font-size:14px}
+body.viewing #viewBar{display:flex}
+body.viewing .dock,body.viewing #topBar,body.viewing #dockOpen,body.viewing #pop,body.viewing #selBox{display:none !important}
+body.viewing #stage{cursor:default}
+.ib[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+@keyframes inNext{from{transform:translateX(48px);opacity:.25}to{transform:none;opacity:1}}
+@keyframes inPrev{from{transform:translateX(-48px);opacity:.25}to{transform:none;opacity:1}}
+#paper.flipN{animation:inNext .22s ease-out}
+#paper.flipP{animation:inPrev .22s ease-out}
+@media (prefers-reduced-motion:reduce){.chrome,#toast{transition:none}#paper.flipN,#paper.flipP{animation:none}}
 @media (max-width:400px){.tb{width:46px}.ib{min-width:34px;padding:0 4px}}
 </style>
 </head>
@@ -150,6 +173,8 @@ body.editing .chrome{display:none}
   <button class="ib" id="bPages" type="button" aria-label="ページ一覧">1/1</button>
   <button class="ib" id="bNext" type="button" aria-label="次のページ">›</button>
   <button class="ib" id="bZoom" type="button" aria-label="拡大を切り替え">×1</button>
+  <button class="ib" id="bStrip" type="button" aria-label="ページの帯を表示" aria-pressed="false"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="7" width="5" height="10" rx="1"/><rect x="9.5" y="7" width="5" height="10" rx="1"/><rect x="16" y="7" width="5" height="10" rx="1"/></svg></button>
+  <button class="ib" id="bView" type="button" aria-label="通して見る"><svg class="ic" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z"/></svg></button>
   <button class="ib" id="bMenu" type="button" aria-label="メニュー"><svg class="ic" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg></button>
 </div>
 
@@ -250,6 +275,7 @@ body.editing .chrome{display:none}
       </div>
       <div>
         <h3>使い方</h3>
+        <p style="margin-bottom:8px">ページめくり：指で描かない設定のとき、指で紙を左へはらうと次のページ（最後のページなら新しい紙）、右へはらうと前のページ。右上の帯のボタンでページの一覧を下に出し入れでき、▶で描かずに通して見られます（左右にはらう、画面の左右をタップ、←→キーでめくれます）。</p>
         <p>2本指でつまむと拡大（最大1.5倍）、そのまま動かすと移動。文字は「文字」を選んで紙をタップ。出てきた枠はなぞって移動、右下の丸をドラッグで大きさを変えます。枠をタップするともう一度書き直せます。</p>
         <p style="margin-top:8px">ペンと消しゴムは、選んでいる方のボタンをもう一度タップすると入れ替わります（キーボードならEキー）。ペンの先と反対側の消しゴム、または側面ボタンに対応したペンでは、押している間だけ消しゴムになります。</p>
       </div>
@@ -274,6 +300,12 @@ body.editing .chrome{display:none}
   </div>
 </div>
 
+<div id="strip" hidden aria-label="ページの帯"></div>
+<div id="viewBar">
+  <span id="vCount">1 / 1</span>
+  <button class="ib" id="vStrip" type="button" aria-pressed="false" aria-label="ページの帯を表示"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="7" width="5" height="10" rx="1"/><rect x="9.5" y="7" width="5" height="10" rx="1"/><rect x="16" y="7" width="5" height="10" rx="1"/></svg></button>
+  <button class="ib" id="vClose" type="button">閉じる</button>
+</div>
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>
@@ -334,7 +366,7 @@ body.editing .chrome{display:none}
 
   /* ---------- state ---------- */
   function newPage(items,w,h){return {items:items||[],hist:[],fut:[],w:w||1000,h:h||1414};}
-  var prefs={tool:'pen',color:INK,size:6,esize:28,tsize:48,uimin:false,pstr:60,pcurve:100,pspeed:true,shape:'auto',input:'auto',penEver:false,tapSwap:true};
+  var prefs={tool:'pen',color:INK,size:6,esize:28,tsize:48,uimin:false,pstr:60,pcurve:100,pspeed:true,shape:'auto',input:'auto',penEver:false,tapSwap:true,strip:false};
   var PRESETS={flat:[0,100,false],normal:[60,100,true],brush:[100,70,true]};
   var state=null;
   (function load(){
@@ -377,7 +409,7 @@ body.editing .chrome{display:none}
   }
   /* 新しいページの形：画面の向きに合わせる／縦／横／画面ぴったり */
   function desiredShape(){
-    var mode=state.mode, sw=window.innerWidth, sh=window.innerHeight, land=sw>=sh, o=prefs.shape;
+    var mode=state.mode, sw=window.innerWidth, sh=window.innerHeight-stripReserve(), land=sw>=sh, o=prefs.shape;
     if(o==='fit'){
       var asp=clamp(sw/sh,0.4,2.5), base=1500;
       return land?{w:base,h:Math.round(base/asp)}:{w:Math.round(base*asp),h:base};
@@ -510,11 +542,12 @@ body.editing .chrome{display:none}
     view={z:1,tx:0,ty:0};
     fit();fullRender();
   }
+  function stripReserve(){return prefs.strip?96:0;}
   function fit(){
-    var f=fmt(), pad=4, aw=window.innerWidth-pad*2, ah=window.innerHeight-pad*2;
+    var f=fmt(), pad=4, rs=stripReserve(), aw=window.innerWidth-pad*2, ah=window.innerHeight-rs-pad*2;
     var s=Math.min(aw/f.w,ah/f.h);
     geo.W0=Math.floor(f.w*s);geo.H0=Math.floor(f.h*s);
-    geo.L=Math.round((window.innerWidth-geo.W0)/2);geo.T=Math.round((window.innerHeight-geo.H0)/2);
+    geo.L=Math.round((window.innerWidth-geo.W0)/2);geo.T=Math.round((window.innerHeight-rs-geo.H0)/2);
     wrap.style.left=geo.L+'px';wrap.style.top=geo.T+'px';
     wrap.style.width=geo.W0+'px';wrap.style.height=geo.H0+'px';
     applyView();
@@ -585,7 +618,11 @@ body.editing .chrome{display:none}
     $('#tTapSwap').setAttribute('aria-pressed',String(!!prefs.tapSwap));
     $('#mManga').setAttribute('aria-pressed',String(state.mode==='manga'));
     $('#mSlide').setAttribute('aria-pressed',String(state.mode==='slide'));
+    $('#bStrip').setAttribute('aria-pressed',String(!!prefs.strip));
+    $('#vStrip').setAttribute('aria-pressed',String(!!prefs.strip));
+    $('#vCount').textContent=(d.cur+1)+' / '+d.pages.length;
     syncPop();
+    scheduleStrip();
   }
   function syncPop(){
     $$('#swatches button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.c===prefs.color));});
@@ -704,23 +741,96 @@ body.editing .chrome{display:none}
   $('#bRedo').addEventListener('click',redo);
 
   /* ---------- pages ---------- */
-  function goPage(i){
-    leaveEdit();sel=null;
-    doc().cur=i;
+  function goPage(i,dir){
+    leaveEdit();sel=null;updateSelBox();
+    var d=doc();
+    if(!dir&&i!==d.cur) dir=i>d.cur?'next':'prev';
+    d.cur=i;
     sizeCanvas();syncUI();save();
+    if(dir){
+      canvas.classList.remove('flipN','flipP');
+      void canvas.offsetWidth;
+      canvas.classList.add(dir==='next'?'flipN':'flipP');
+    }
   }
+  canvas.addEventListener('animationend',function(){canvas.classList.remove('flipN','flipP');});
   function addPageAfter(items,w,h){
     var d=doc();
     d.pages.splice(d.cur+1,0,items?newPage(items,w,h):blankPage());
-    goPage(d.cur+1);
+    goPage(d.cur+1,'next');
   }
-  $('#bPrev').addEventListener('click',function(){if(doc().cur>0) goPage(doc().cur-1);});
-  $('#bNext').addEventListener('click',function(){
+  // 次へ：最後のページなら新しい紙を足す（通して見ているときは足さない）
+  function goNext(){
     var d=doc();
-    if(d.cur<d.pages.length-1) goPage(d.cur+1);
-    else if(page().items.length){addPageAfter();}
+    if(d.cur<d.pages.length-1) goPage(d.cur+1,'next');
+    else if(viewing) toast('最後のページです');
+    else if(page().items.length) addPageAfter();
     else toast('このページがまだ白紙です');
-  });
+  }
+  function goPrev(){
+    if(doc().cur>0) goPage(doc().cur-1,'prev');
+    else toast('最初のページです');
+  }
+  $('#bPrev').addEventListener('click',goPrev);
+  $('#bNext').addEventListener('click',goNext);
+
+  /* page strip */
+  var stripTimer=null;
+  function scheduleStrip(){clearTimeout(stripTimer);stripTimer=setTimeout(buildStrip,250);}
+  function buildStrip(){
+    var box=$('#strip');
+    if(!prefs.strip){box.hidden=true;document.body.classList.remove('strip-on');return;}
+    box.hidden=false;document.body.classList.add('strip-on');
+    var d=doc(), keep=box.scrollLeft;
+    box.innerHTML='';
+    var curEl=null;
+    d.pages.forEach(function(pg,i){
+      var b=document.createElement('button');
+      b.type='button';b.className='stile';b.setAttribute('aria-label','ページ '+(i+1));
+      if(i===d.cur){b.setAttribute('aria-current','true');curEl=b;}
+      var th=pageSnapshot(pg,i===d.cur);
+      var cv=document.createElement('canvas');cv.width=th.width;cv.height=th.height;
+      cv.getContext('2d').drawImage(th,0,0);
+      cv.style.width=Math.round(68*pg.w/pg.h)+'px';
+      var n=document.createElement('span');n.textContent=String(i+1);
+      b.appendChild(cv);b.appendChild(n);
+      b.addEventListener('click',function(){if(i!==doc().cur) goPage(i);});
+      box.appendChild(b);
+    });
+    if(!viewing){
+      var a=document.createElement('button');
+      a.type='button';a.className='stile add';a.textContent='＋';a.setAttribute('aria-label','最後に新しいページを足す');
+      a.addEventListener('click',function(){
+        var dd=doc();dd.pages.push(blankPage());goPage(dd.pages.length-1,'next');
+      });
+      box.appendChild(a);
+    }
+    box.scrollLeft=keep;
+    if(curEl){
+      var l=curEl.offsetLeft, r=l+curEl.offsetWidth;
+      if(l<box.scrollLeft||r>box.scrollLeft+box.clientWidth) box.scrollLeft=l-box.clientWidth/2+curEl.offsetWidth/2;
+    }
+  }
+  function toggleStrip(){
+    prefs.strip=!prefs.strip;
+    buildStrip();
+    if(!editing&&reshapeBlank()) sizeCanvas(); else fit();
+    syncUI();save();
+  }
+  $('#bStrip').addEventListener('click',toggleStrip);
+  $('#vStrip').addEventListener('click',toggleStrip);
+
+  /* read-through mode: no drawing, flip with swipe / tap / arrow keys */
+  var viewing=false;
+  function setViewing(on){
+    leaveEdit();sel=null;updateSelBox();togglePop(false);
+    viewing=on;
+    document.body.classList.toggle('viewing',on);
+    if(view.z>1) zoomAt(1,window.innerWidth/2,window.innerHeight/2);
+    buildStrip();syncUI();
+  }
+  $('#bView').addEventListener('click',function(){setViewing(true);});
+  $('#vClose').addEventListener('click',function(){setViewing(false);});
   $('#bZoom').addEventListener('click',function(){
     if(view.z>1) zoomAt(1,window.innerWidth/2,window.innerHeight/2);
     else zoomAt(MAXZ,window.innerWidth/2,window.innerHeight/2);
@@ -992,7 +1102,7 @@ body.editing .chrome{display:none}
   });
 
   /* ---------- pointer input ---------- */
-  var pointers=new Map(), gesture=null, tapCand=null, lastPenContact=0, activeDraw=null, live=null, dragFrame=null, drawTimer=null;
+  var pointers=new Map(), gesture=null, tapCand=null, viewCand=null, lastPenContact=0, activeDraw=null, live=null, dragFrame=null, drawTimer=null;
 
   // 指では描かない設定か（自動：ペンを一度でも使ったら指では描かない）
   function fingersBlocked(){return prefs.input==='pen'||(prefs.input==='auto'&&prefs.penEver);}
@@ -1033,6 +1143,12 @@ body.editing .chrome{display:none}
     }
     try{stage.setPointerCapture(e.pointerId);}catch(err){}
     togglePop(false);
+    if(viewing){
+      e.preventDefault();
+      if(e.pointerType==='touch'&&touchList().length>=2){viewCand=null;startGesture();return;}
+      viewCand={id:e.pointerId,x:e.clientX,y:e.clientY,t:e.timeStamp};
+      return;
+    }
     if(e.pointerType==='touch'){
       // ペンで描いている最中に手のひらが触れても、描画を止めない
       if(fingersBlocked()&&activeDraw) return;
@@ -1126,12 +1242,29 @@ body.editing .chrome{display:none}
   }
   function endPointer(e,cancel){
     if(e.pointerType==='pen') lastPenContact=performance.now();
+    if(viewCand&&e.pointerId===viewCand.id){
+      var vc=viewCand;viewCand=null;
+      if(!cancel&&!gesture){
+        var vdx=e.clientX-vc.x, vdy=e.clientY-vc.y;
+        if(Math.abs(vdx)>50&&Math.abs(vdx)>1.5*Math.abs(vdy)){if(vdx<0) goNext(); else goPrev();}
+        else if(Math.hypot(vdx,vdy)<10){
+          if(vc.x<window.innerWidth/3) goPrev();
+          else if(vc.x>window.innerWidth*2/3) goNext();
+        }
+      }
+    }
     if(tapCand&&e.pointerId===tapCand.id){
       var tc=tapCand;tapCand=null;
-      if(!cancel&&e.pointerType==='touch'&&!gesture&&prefs.tapSwap
-         &&e.timeStamp-tc.t<300&&Math.hypot(e.clientX-tc.x,e.clientY-tc.y)<10
-         &&performance.now()-lastPenContact>600&&!activeDraw
-         &&(prefs.tool==='pen'||prefs.tool==='eraser')) swapPenEraser();
+      var tdx=e.clientX-tc.x, tdy=e.clientY-tc.y, tdt=e.timeStamp-tc.t;
+      var penQuiet=performance.now()-lastPenContact>600&&!activeDraw;
+      if(!cancel&&e.pointerType==='touch'&&!gesture&&penQuiet){
+        if(prefs.tapSwap&&tdt<300&&Math.hypot(tdx,tdy)<10
+           &&(prefs.tool==='pen'||prefs.tool==='eraser')) swapPenEraser();
+        // 指で左右にはらうとページをめくる（最後のページで左へはらうと新しい紙）
+        else if(tdt<700&&Math.abs(tdx)>60&&Math.abs(tdx)>1.5*Math.abs(tdy)){
+          if(tdx<0) goNext(); else goPrev();
+        }
+      }
     }
     pointers.delete(e.pointerId);
     if(gesture&&touchList().length<2) gesture=null;
@@ -1167,6 +1300,12 @@ body.editing .chrome{display:none}
 
   document.addEventListener('keydown',function(e){
     if(e.target&&/INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    if(viewing){
+      if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '||e.key==='PageDown'){e.preventDefault();goNext();}
+      else if(e.key==='ArrowLeft'||e.key==='ArrowUp'||e.key==='PageUp'){e.preventDefault();goPrev();}
+      else if(e.key==='Escape'&&!$$('.sheet.open').length) setViewing(false);
+      return;
+    }
     var mod=e.ctrlKey||e.metaKey;
     if(mod&&e.key.toLowerCase()==='z'){e.preventDefault();if(e.shiftKey)redo();else undo();return;}
     if(mod&&e.key.toLowerCase()==='y'){e.preventDefault();redo();return;}
