@@ -17,6 +17,7 @@
 
 
 
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
@@ -46,7 +47,7 @@ svg{display:block}
 .ic{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
-#stage{position:fixed;inset:0;touch-action:none;cursor:crosshair}
+#stage{position:fixed;inset:0;touch-action:none;cursor:crosshair;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 #wrap{position:absolute;transform-origin:0 0;will-change:transform}
 #paper{display:block;width:100%;height:100%;background-color:var(--paper);
   background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .38 0 0 0 0 .25 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -287,7 +288,7 @@ body.viewing #stage{cursor:default}
       <button class="btn primary" id="mExport" type="button">書き出し</button>
       <button class="btn" id="mClose" type="button">閉じる</button>
     </div>
-    <p style="margin:0;font-size:12px">バージョン 2026-10-31b（拡大は最大3倍）</p>
+    <p style="margin:0;font-size:12px">バージョン 2026-10-31c（ペンの反応を改善）</p>
   </div>
 </div>
 
@@ -719,7 +720,7 @@ body.viewing #stage{cursor:default}
     var s=prefs.pstr/100, g=prefs.pcurve/100;
     if(ev.pointerType==='pen'&&ev.pressure>0){
       var pp=Math.pow(clamp(ev.pressure,0,1),g);
-      return size0*(1-s+s*(0.2+1.6*pp));
+      return Math.max(size0*(1-s+s*(0.2+1.6*pp)),size0*0.3,1);
     }
     if(prefs.pspeed&&speed!==undefined){
       var sf=1.1-0.25*Math.min(speed,2.2), mix=clamp(s/0.6,0,1.6);
@@ -1231,6 +1232,12 @@ body.viewing #stage{cursor:default}
         return;
       }
     }
+    if(e.pointerType==='pen'||e.pointerType==='mouse'){
+      // 手のひらが2か所触れて「拡大の操作」と判定されていても、ペンを優先する
+      if(gesture){gesture=null;tapCand=null;}
+      // 前の線の終わりの合図を受け取り損ねていたら、ここで閉じる
+      if(activeDraw&&activeDraw.id!==e.pointerId) finishDraw(false);
+    }
     if(activeDraw||gesture) return;
     e.preventDefault();
     var f=fmt(), p=pt(e), tool=prefs.tool;
@@ -1341,6 +1348,11 @@ body.viewing #stage{cursor:default}
     if(gesture&&touchList().length<2) gesture=null;
     else if(gesture) startGesture();
     if(!activeDraw||e.pointerId!==activeDraw.id) return;
+    // iPadではペンの線が途中で「取り消し」扱いになることがある。その場合も描いた分は残す
+    finishDraw(cancel&&e.pointerType!=='pen'&&e.pointerType!=='mouse');
+  }
+  function finishDraw(cancel){
+    if(!activeDraw) return;
     activeDraw=null;setDrawing(false);
     if(dragFrame){
       var r=frameRect();dragFrame=null;
@@ -1363,6 +1375,9 @@ body.viewing #stage{cursor:default}
   stage.addEventListener('pointerup',function(e){endPointer(e,false);});
   stage.addEventListener('pointercancel',function(e){endPointer(e,true);});
   stage.addEventListener('contextmenu',function(e){e.preventDefault();});
+  ['touchstart','touchmove'].forEach(function(t){
+    stage.addEventListener(t,function(e){if(e.cancelable) e.preventDefault();},{passive:false});
+  });
   stage.addEventListener('wheel',function(e){
     e.preventDefault();
     if(e.ctrlKey||e.metaKey){zoomAt(view.z*Math.exp(-e.deltaY*0.01),e.clientX,e.clientY);}
