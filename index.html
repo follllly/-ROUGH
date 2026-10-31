@@ -14,6 +14,7 @@
 
 
 
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
@@ -291,10 +292,12 @@ body.viewing #stage{cursor:default}
   <div class="dlg">
     <h2>書き出し</h2>
     <div class="view scroll"><img id="exImg" alt="全ページの一覧"></div>
-    <p id="exNote">画像を長押し（右クリック）すると保存できます。</p>
+    <p id="exNote">PDFは全ページを1つのファイルにまとめます（漫画のネームやスライドを人に渡すとき向け）。PNGは画質が落ちない画像、JPEGはファイルが小さい画像です。iPadでは、出てきたメニューから「ファイルに保存」や「画像を保存」を選べます。</p>
     <div class="row">
-      <button class="btn" id="dlPage" type="button" hidden>このページをPNG</button>
-      <button class="btn" id="dlAll" type="button" hidden>一覧をPNG</button>
+      <button class="btn primary" id="exPdf" type="button">全ページ（PDF）</button>
+      <button class="btn" id="exPng" type="button">このページ（PNG）</button>
+      <button class="btn" id="exJpg" type="button">このページ（JPEG）</button>
+      <button class="btn" id="exSheet" type="button">一覧（PNG）</button>
       <button class="btn" id="exClose" type="button">閉じる</button>
     </div>
   </div>
@@ -334,6 +337,25 @@ body.viewing #stage{cursor:default}
   function $$(s){return Array.prototype.slice.call(document.querySelectorAll(s));}
   function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
   function r1(v){return Math.round(v*10)/10;}
+  /* 線の点を間引く（見た目が変わらない範囲で、ほぼまっすぐな部分の点を減らす）。
+     太さの変化も含めて、tol(紙の上の0.35px)以上ずれる点は残す */
+  function simplify(q,tol){
+    var n=q.length;if(n<3) return q;
+    var keep=new Uint8Array(n);keep[0]=keep[n-1]=1;
+    var stack=[[0,n-1]], t2=tol*tol;
+    while(stack.length){
+      var sg=stack.pop(), a=sg[0], b=sg[1];
+      var ax=q[a][0],ay=q[a][1],aw=q[a][2],dx=q[b][0]-ax,dy=q[b][1]-ay,dw=q[b][2]-aw,L=dx*dx+dy*dy,md=-1,mi=-1;
+      for(var i=a+1;i<b;i++){
+        var px=q[i][0]-ax,py=q[i][1]-ay,t=L?(px*dx+py*dy)/L:0;t=t<0?0:t>1?1:t;
+        var ex=px-t*dx,ey=py-t*dy,ew=(q[i][2]-aw-t*dw)*0.5,d=ex*ex+ey*ey+ew*ew;
+        if(d>md){md=d;mi=i;}
+      }
+      if(md>t2){keep[mi]=1;stack.push([a,mi],[mi,b]);}
+    }
+    var out=[];for(var j=0;j<n;j++) if(keep[j]) out.push(q[j]);
+    return out;
+  }
 
   /* ---------- frame layouts ---------- */
   function area(mode,w,h){
@@ -369,9 +391,8 @@ body.viewing #stage{cursor:default}
   var prefs={tool:'pen',color:INK,size:6,esize:28,tsize:48,uimin:false,pstr:60,pcurve:100,pspeed:true,shape:'auto',input:'auto',penEver:false,tapSwap:true,strip:false};
   var PRESETS={flat:[0,100,false],normal:[60,100,true],brush:[100,70,true]};
   var state=null;
-  (function load(){
+  function parseSaved(d){
     try{
-      var d=JSON.parse(localStorage.getItem(KEY));
       if(d&&d.docs){
         var st={mode:d.mode==='slide'?'slide':'manga',docs:{}};
         ['manga','slide'].forEach(function(m){
@@ -382,23 +403,68 @@ body.viewing #stage{cursor:default}
             return newPage(pe.i,pe.w,pe.h);
           })};
         });
-        state=st;
         if(d.prefs) Object.keys(prefs).forEach(function(k){if(d.prefs[k]!==undefined) prefs[k]=d.prefs[k];});
+        return st;
       }
-    }catch(e){state=null;}
-  })();
+    }catch(e){}
+    return null;
+  }
+  // 以前の版はブラウザの小さな保存領域(localStorage)に保存していた。まずそこから読む
+  try{state=parseSaved(JSON.parse(localStorage.getItem(KEY)));}catch(e){state=null;}
   if(!state) state={mode:'manga',docs:{manga:{cur:0,pages:[newPage([],1000,1414)]},slide:{cur:0,pages:[newPage([],1280,720)]}}};
-  var saveTimer=null;
+  /* 保存先：IndexedDB（ブラウザ内の大きな保存領域）。使えないときだけ localStorage */
+  var idb=null, ready=false, saveTimer=null, warned=false;
+  function idbOpen(){
+    return new Promise(function(res){
+      try{
+        var r=indexedDB.open('rafucho',1);
+        r.onupgradeneeded=function(){r.result.createObjectStore('kv');};
+        r.onsuccess=function(){res(r.result);};
+        r.onerror=function(){res(null);};
+        r.onblocked=function(){res(null);};
+      }catch(e){res(null);}
+    });
+  }
+  function idbGet(k){
+    return new Promise(function(res){
+      try{
+        var q=idb.transaction('kv','readonly').objectStore('kv').get(k);
+        q.onsuccess=function(){res(q.result);};q.onerror=function(){res(undefined);};
+      }catch(e){res(undefined);}
+    });
+  }
+  function idbPut(k,v){
+    return new Promise(function(res){
+      try{
+        var tx=idb.transaction('kv','readwrite');tx.objectStore('kv').put(v,k);
+        tx.oncomplete=function(){res(true);};tx.onerror=function(){res(false);};tx.onabort=function(){res(false);};
+      }catch(e){res(false);}
+    });
+  }
+  function snapshotState(){
+    var out={mode:state.mode,prefs:JSON.parse(JSON.stringify(prefs)),docs:{}};
+    ['manga','slide'].forEach(function(m){
+      out.docs[m]={cur:state.docs[m].cur,pages:state.docs[m].pages.map(function(p){return {i:p.items,w:p.w,h:p.h};})};
+    });
+    return out;
+  }
+  function saveFailed(){
+    if(warned) return;warned=true;
+    toast('保存できませんでした。容量がいっぱいかもしれません。書き出しで絵を残してください');
+  }
   function save(){
+    if(!ready) return; // 読み込みが終わるまでは書き込まない（空の状態で上書きしないため）
     clearTimeout(saveTimer);
     saveTimer=setTimeout(function(){
-      try{
-        var out={mode:state.mode,prefs:prefs,docs:{}};
-        ['manga','slide'].forEach(function(m){
-          out.docs[m]={cur:state.docs[m].cur,pages:state.docs[m].pages.map(function(p){return {i:p.items,w:p.w,h:p.h};})};
+      var out=snapshotState();
+      if(idb){
+        idbPut('state',out).then(function(ok){
+          if(ok){warned=false;try{localStorage.removeItem(KEY);}catch(e){}}
+          else saveFailed();
         });
-        localStorage.setItem(KEY,JSON.stringify(out));
-      }catch(e){}
+      }else{
+        try{localStorage.setItem(KEY,JSON.stringify(out));warned=false;}catch(e){saveFailed();}
+      }
     },500);
   }
   function doc(){return state.docs[state.mode];}
@@ -1135,6 +1201,7 @@ body.viewing #stage{cursor:default}
   function snap(v){return Math.round(v/10)*10;}
 
   stage.addEventListener('pointerdown',function(e){
+    if(!ready) return;
     if(e.pointerType==='mouse'&&e.button!==0) return;
     pointers.set(e.pointerId,{x:e.clientX,y:e.clientY,type:e.pointerType});
     if(e.pointerType==='pen'){
@@ -1286,7 +1353,7 @@ body.viewing #stage{cursor:default}
         ctx.save();ctx.setTransform(K,0,0,K,0,0);styleStroke(ctx,it);
         segment(ctx,it.p,it.p.length-1);ctx.restore();
       }
-      commit(page().items.concat({t:'s',c:it.c,e:it.e,p:it.p}));
+      commit(page().items.concat({t:'s',c:it.c,e:it.e,p:simplify(it.p,0.35)}));
     }
   }
   stage.addEventListener('pointerup',function(e){endPointer(e,false);});
@@ -1350,25 +1417,87 @@ body.viewing #stage{cursor:default}
     });
     return c;
   }
-  function saveCanvas(cv,name){
-    cv.toBlob(function(blob){
-      if(!blob||!dl){toast('この画面では保存できません');return;}
+  function canvasBlob(cv,type,q){
+    return new Promise(function(res){cv.toBlob(function(b){res(b);},type,q);});
+  }
+  // できたファイルを渡す：Claude上なら保存機能、iPadなどは共有メニュー、それ以外はダウンロード
+  function deliver(blob,name){
+    if(!blob){toast('ファイルを作れませんでした');return;}
+    if(dl){
       Promise.resolve().then(function(){return dl.save({filename:name,data:blob});})
-        .then(function(){toast('保存しました');})
-        .catch(function(){toast('保存できませんでした');});
-    },'image/png');
+        .then(function(){toast('保存しました');}).catch(function(){toast('保存できませんでした');});
+      return;
+    }
+    var file=null;
+    try{file=new File([blob],name,{type:blob.type});}catch(e){}
+    var touch=window.matchMedia&&window.matchMedia('(pointer: coarse)').matches;
+    if(touch&&file&&navigator.canShare&&navigator.canShare({files:[file]})){
+      navigator.share({files:[file]}).catch(function(err){if(!err||err.name!=='AbortError') download(blob,name);});
+      return;
+    }
+    download(blob,name);
+  }
+  function download(blob,name){
+    try{
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
+      document.body.appendChild(a);a.click();
+      setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},4000);
+    }catch(e){toast('この画面では保存できません。画像を長押しして保存してください');}
+  }
+  /* PDFを自前で組み立てる（各ページをJPEG画像として1ページずつ並べる） */
+  function buildPDF(pages){
+    var te=new TextEncoder(), chunks=[], len=0, offs=[];
+    function add(x){var b=typeof x==='string'?te.encode(x):x;chunks.push(b);len+=b.length;}
+    function obj(n,body){offs[n]=len;add(n+' 0 obj\n'+body+'\nendobj\n');}
+    add('%PDF-1.4\n');add(new Uint8Array([0x25,0xE2,0xE3,0xCF,0xD3,0x0A]));
+    var N=2+pages.length*3, kids=pages.map(function(_,i){return (3+i*3)+' 0 R';}).join(' ');
+    obj(1,'<< /Type /Catalog /Pages 2 0 R >>');
+    obj(2,'<< /Type /Pages /Kids ['+kids+'] /Count '+pages.length+' >>');
+    pages.forEach(function(pg,i){
+      var pn=3+i*3, cn=pn+1, im=pn+2;
+      obj(pn,'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+pg.pw+' '+pg.ph+'] /Resources << /XObject << /Im'+i+' '+im+' 0 R >> >> /Contents '+cn+' 0 R >>');
+      var cs='q '+pg.pw+' 0 0 '+pg.ph+' 0 0 cm /Im'+i+' Do Q';
+      obj(cn,'<< /Length '+cs.length+' >>\nstream\n'+cs+'\nendstream');
+      offs[im]=len;
+      add(im+' 0 obj\n<< /Type /XObject /Subtype /Image /Width '+pg.iw+' /Height '+pg.ih+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+pg.bytes.length+' >>\nstream\n');
+      add(pg.bytes);add('\nendstream\nendobj\n');
+    });
+    var xo=len, x='xref\n0 '+(N+1)+'\n0000000000 65535 f \n';
+    for(var k=1;k<=N;k++) x+=('0000000000'+offs[k]).slice(-10)+' 00000 n \n';
+    add(x+'trailer\n<< /Size '+(N+1)+' /Root 1 0 R >>\nstartxref\n'+xo+'\n%%EOF\n');
+    return new Blob(chunks,{type:'application/pdf'});
+  }
+  function exportPDF(){
+    var mode=state.mode, pages=doc().pages.slice(), out=[];
+    toast('PDFを作っています…');
+    var chain=Promise.resolve();
+    pages.forEach(function(pg){
+      chain=chain.then(function(){
+        var cv=pageToCanvas(pg,mode,1.6);
+        return canvasBlob(cv,'image/jpeg',0.9).then(function(b){return b.arrayBuffer();}).then(function(ab){
+          out.push({bytes:new Uint8Array(ab),iw:cv.width,ih:cv.height,pw:Math.round(pg.w*0.595),ph:Math.round(pg.h*0.595)});
+        });
+      });
+    });
+    chain.then(function(){deliver(buildPDF(out),'rafucho-'+(mode==='manga'?'name':'slides')+'.pdf');})
+      .catch(function(){toast('PDFを作れませんでした');});
   }
   $('#mExport').addEventListener('click',function(){
     leaveEdit();
     closeSheet('menuSheet');
     $('#exImg').src=sheetToCanvas().toDataURL('image/png');
-    var has=!!dl;
-    $('#dlPage').hidden=!has;$('#dlAll').hidden=!has;
-    $('#exNote').textContent=has?'保存するとPNG画像が作られます。':'画像を長押し（右クリック）すると保存できます。';
     openSheet('exportSheet');
   });
-  $('#dlPage').addEventListener('click',function(){saveCanvas(pageToCanvas(page(),state.mode,K),'rafucho-p'+(doc().cur+1)+'.png');});
-  $('#dlAll').addEventListener('click',function(){saveCanvas(sheetToCanvas(),'rafucho-list.png');});
+  $('#exPdf').addEventListener('click',exportPDF);
+  $('#exPng').addEventListener('click',function(){
+    canvasBlob(pageToCanvas(page(),state.mode,K),'image/png').then(function(b){deliver(b,'rafucho-p'+(doc().cur+1)+'.png');});
+  });
+  $('#exJpg').addEventListener('click',function(){
+    canvasBlob(pageToCanvas(page(),state.mode,K),'image/jpeg',0.9).then(function(b){deliver(b,'rafucho-p'+(doc().cur+1)+'.jpg');});
+  });
+  $('#exSheet').addEventListener('click',function(){
+    canvasBlob(sheetToCanvas(),'image/png').then(function(b){deliver(b,'rafucho-list.png');});
+  });
   $('#exClose').addEventListener('click',function(){closeSheet('exportSheet');});
 
   /* ---------- boot ---------- */
@@ -1382,6 +1511,21 @@ body.viewing #stage{cursor:default}
     },150);
   });
   sizeCanvas();buildTpl();syncUI();
+  idbOpen().then(function(db){
+    idb=db;
+    if(!db){ready=true;return;}
+    return idbGet('state').then(function(v){
+      var st=v?parseSaved(v):null;
+      if(st){
+        state=st;
+        sizeCanvas();buildTpl();syncUI();
+        ready=true;
+      }else{
+        ready=true;save(); // 以前の保存（localStorage）をIndexedDBへ移す
+      }
+      try{if(navigator.storage&&navigator.storage.persist) navigator.storage.persist();}catch(e){}
+    });
+  });
   try{
     if(document.fonts&&document.fonts.load){
       document.fonts.load(fontStr(40),'あいう漢字').then(function(){if(!editing){fullRender();updateSelBox();}}).catch(function(){});
