@@ -20,6 +20,7 @@
 
 
 
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
@@ -121,6 +122,9 @@ body.editing .chrome{display:none}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .btn[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--panel)}
 .btn:disabled{opacity:.35}
+.txt{height:42px;border:1px solid var(--line);border-radius:11px;padding:0 12px;background:var(--bg);color:var(--ink);font:inherit;font-size:15px;min-width:0;flex:1 1 200px;-webkit-user-select:text;user-select:text}
+.txt:focus{outline:2px solid var(--accent);outline-offset:1px}
+body.dropping #stage::after{content:"ここに .rafu ファイルを落とすと開けます";position:fixed;inset:12px;border:3px dashed var(--accent);border-radius:16px;display:grid;place-items:center;font-size:18px;color:var(--accent);background:rgba(47,91,216,.06);pointer-events:none}
 .dlg p{margin:0;color:var(--muted);font-size:13px;line-height:1.7}
 #pgGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px;align-items:start}
 .pg{border:2px solid var(--line);border-radius:8px;background:var(--paper);padding:0;cursor:pointer;position:relative;overflow:hidden;display:block;width:100%}
@@ -289,6 +293,19 @@ body.viewing #stage{cursor:default}
         </div>
         <p style="margin-top:8px">描いたページの形は変わりません。白紙のページは、iPadの向きを変えたり、ここで選び直したりすると、その場で新しい形になります。「画面ぴったり」は、画面の縦横比そのままの紙で、余白が出ません。</p>
       </div>
+      <div>
+        <h3>作品ファイル（.rafu）</h3>
+        <div class="row">
+          <label for="rafuName" style="position:absolute;left:-9999px">ファイル名</label>
+          <input class="txt" id="rafuName" type="text" spellcheck="false" autocomplete="off">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn primary" id="rafuSave" type="button">このノートを保存</button>
+          <button class="btn" id="rafuOpen" type="button">ファイルを開く</button>
+          <input id="rafuInput" type="file" hidden>
+        </div>
+        <p style="margin-top:8px">線・文字・コマ・塗り・ページの並びを、あとで続きを描ける形のまま1つのファイルにします。iPadなら「ファイル」アプリやiCloudに置いておくと、ブラウザのデータが消えても安心です。パソコンのブラウザで開けば続きも描けます。</p>
+      </div>
       <div id="fullRow">
         <h3>画面</h3>
         <div class="row">
@@ -311,7 +328,7 @@ body.viewing #stage{cursor:default}
       <button class="btn primary" id="mExport" type="button">書き出し</button>
       <button class="btn" id="mClose" type="button">閉じる</button>
     </div>
-    <p style="margin:0;font-size:12px">バージョン 2026-11-04b（並べ替えの手ざわり）</p>
+    <p style="margin:0;font-size:12px">バージョン 2026-11-05a（作品ファイル .rafu）</p>
   </div>
 </div>
 
@@ -335,6 +352,18 @@ body.viewing #stage{cursor:default}
   <span id="vCount">1 / 1</span>
   <button class="ib" id="vStrip" type="button" aria-pressed="false" aria-label="ページの帯を表示"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="7" width="5" height="10" rx="1"/><rect x="9.5" y="7" width="5" height="10" rx="1"/><rect x="16" y="7" width="5" height="10" rx="1"/></svg></button>
   <button class="ib" id="vClose" type="button">閉じる</button>
+</div>
+<div id="openSheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="openTitle">
+  <div class="dlg">
+    <h2 id="openTitle">作品ファイルを開く</h2>
+    <p id="openInfo"></p>
+    <div class="row">
+      <button class="btn primary" id="openAppend" type="button">今のノートの後ろに足す</button>
+      <button class="btn" id="openReplace" type="button">今のノートと置き換える</button>
+      <button class="btn" id="openCancel" type="button">やめる</button>
+    </div>
+    <p>「置き換える」は元に戻せません。今のノートを残したいときは、先に「このノートを保存」をしてください。</p>
+  </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -1670,6 +1699,116 @@ body.viewing #stage{cursor:default}
     canvasBlob(sheetToCanvas(),'image/png').then(function(b){deliver(b,'rafucho-list.png');});
   });
   $('#exClose').addEventListener('click',function(){closeSheet('exportSheet');});
+
+  /* ---------- 作品ファイル（.rafu）：保存と読み込み ---------- */
+  // 中身はJSON（線の点・太さ・色、文字、コマ、塗り、ページの大きさと並び）。使えるブラウザではgzipで小さくする
+  var RAFU_VERSION=1;
+  function pad2(n){return ('0'+n).slice(-2);}
+  function defaultRafuName(){
+    var t=new Date();
+    // 日本語のファイル名は、ブラウザによっては名前が付かず「download」になることがあるので英数字にしておく
+    return 'rafucho-'+(state.mode==='manga'?'name':'slides')+'-'+t.getFullYear()+pad2(t.getMonth()+1)+pad2(t.getDate())+'-'+pad2(t.getHours())+pad2(t.getMinutes());
+  }
+  function cleanName(n){
+    n=(n||'').replace(/[\\/:*?"<>|\u0000-\u001f]/g,'').replace(/\.rafu$/i,'').trim();
+    return n||defaultRafuName();
+  }
+  $('#bMenu').addEventListener('click',function(){$('#rafuName').value=defaultRafuName();});
+  function packRafu(obj){
+    var json=JSON.stringify(obj);
+    if(window.CompressionStream){
+      try{
+        var st=new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
+        return new Response(st).blob().then(function(b){return new Blob([b],{type:'application/octet-stream'});});
+      }catch(e){}
+    }
+    return Promise.resolve(new Blob([json],{type:'application/octet-stream'}));
+  }
+  function unpackRafu(file){
+    return file.arrayBuffer().then(function(ab){
+      var u=new Uint8Array(ab);
+      if(u[0]===0x1f&&u[1]===0x8b){
+        if(!window.DecompressionStream) throw new Error('このブラウザでは圧縮されたファイルを開けません');
+        return new Response(new Blob([ab]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+      }
+      return new TextDecoder().decode(u);
+    }).then(function(t){return JSON.parse(t);});
+  }
+  // 読み込んだ中身を点検して、壊れた部分は捨てる（アプリが止まらないように）
+  function isNum(v){return typeof v==='number'&&isFinite(v);}
+  function okColor(c){return typeof c==='string'&&/^#[0-9a-f]{6}$/i.test(c)?c:INK;}
+  function cleanItem(it){
+    if(!it||typeof it!=='object') return null;
+    if(it.t==='s'&&Array.isArray(it.p)){
+      var pts=it.p.filter(function(q){return Array.isArray(q)&&isNum(q[0])&&isNum(q[1])&&isNum(q[2]);});
+      return pts.length?{t:'s',c:okColor(it.c),e:!!it.e,p:pts}:null;
+    }
+    if(it.t==='rects'&&Array.isArray(it.list)){
+      var l=it.list.filter(function(r){return Array.isArray(r)&&r.length===4&&r.every(isNum);});
+      return l.length?{t:'rects',list:l}:null;
+    }
+    if(it.t==='text'&&typeof it.str==='string'&&isNum(it.x)&&isNum(it.y)&&isNum(it.s))
+      return {t:'text',x:it.x,y:it.y,s:clamp(it.s,8,400),c:okColor(it.c),str:it.str};
+    if(it.t==='fill'&&isNum(it.x)&&isNum(it.y)) return {t:'fill',x:it.x,y:it.y,c:okColor(it.c)};
+    return null;
+  }
+  function readNotebook(o){
+    if(!o||o.format!=='rafucho'||!Array.isArray(o.pages)||!o.pages.length) return null;
+    var mode=o.mode==='slide'?'slide':'manga', d0=stdShape(mode,mode==='slide');
+    var pages=o.pages.map(function(pe){
+      var w=isNum(pe&&pe.w)?clamp(pe.w,200,4000):d0.w, h=isNum(pe&&pe.h)?clamp(pe.h,200,4000):d0.h;
+      var items=Array.isArray(pe&&pe.i)?pe.i.map(cleanItem).filter(Boolean):[];
+      return newPage(items,w,h);
+    });
+    return {mode:mode,pages:pages,cur:isNum(o.cur)?clamp(Math.round(o.cur),0,pages.length-1):0,newer:(o.version||1)>RAFU_VERSION};
+  }
+  $('#rafuSave').addEventListener('click',function(){
+    leaveEdit();
+    var d=doc(), name=cleanName($('#rafuName').value)+'.rafu';
+    var obj={format:'rafucho',version:RAFU_VERSION,app:'ラフ帳',savedAt:new Date().toISOString(),mode:state.mode,cur:d.cur,
+      pages:d.pages.map(function(p){return {i:p.items,w:p.w,h:p.h};})};
+    packRafu(obj).then(function(b){closeSheet('menuSheet');deliver(b,name);})
+      .catch(function(){toast('ファイルを作れませんでした');});
+  });
+  var pendingOpen=null;
+  $('#rafuOpen').addEventListener('click',function(){$('#rafuInput').value='';$('#rafuInput').click();});
+  $('#rafuInput').addEventListener('change',function(){if(this.files&&this.files[0]) openRafuFile(this.files[0]);});
+  function openRafuFile(file){
+    leaveEdit();
+    unpackRafu(file).then(function(o){
+      var nb=readNotebook(o);
+      if(!nb){toast('ラフ帳の作品ファイルではないようです');return;}
+      pendingOpen=nb;
+      closeSheet('menuSheet');
+      var kind=nb.mode==='manga'?'漫画ネーム':'スライド';
+      $('#openInfo').textContent='「'+file.name+'」（'+kind+'・'+nb.pages.length+'ページ）を、'+kind+'のノートに読み込みます。'+(nb.newer?' このファイルは新しい版のラフ帳で作られています。一部が読み込めないかもしれません。':'');
+      openSheet('openSheet');
+    }).catch(function(err){toast(err&&err.message&&/ブラウザ/.test(err.message)?err.message:'ファイルを読み込めませんでした');});
+  }
+  function applyOpen(replace){
+    var nb=pendingOpen;pendingOpen=null;closeSheet('openSheet');
+    if(!nb) return;
+    var target=state.docs[nb.mode], first;
+    if(replace){target.pages=nb.pages;target.cur=nb.cur;first=nb.cur;}
+    else{first=target.pages.length;target.pages=target.pages.concat(nb.pages);}
+    if(state.mode!==nb.mode){state.mode=nb.mode;buildTpl();}
+    target.cur=first;
+    sel=null;sizeCanvas();syncUI();save();
+    toast(replace?'ファイルを開きました':nb.pages.length+'ページを後ろに足しました');
+  }
+  $('#openReplace').addEventListener('click',function(){applyOpen(true);});
+  $('#openAppend').addEventListener('click',function(){applyOpen(false);});
+  $('#openCancel').addEventListener('click',function(){pendingOpen=null;closeSheet('openSheet');});
+  // パソコンでは、ファイルを画面に落としても開ける
+  var dropDepth=0;
+  window.addEventListener('dragenter',function(e){if(e.dataTransfer&&Array.prototype.indexOf.call(e.dataTransfer.types||[],'Files')>=0){dropDepth++;document.body.classList.add('dropping');}});
+  window.addEventListener('dragleave',function(){dropDepth=Math.max(0,dropDepth-1);if(!dropDepth) document.body.classList.remove('dropping');});
+  window.addEventListener('dragover',function(e){e.preventDefault();});
+  window.addEventListener('drop',function(e){
+    e.preventDefault();dropDepth=0;document.body.classList.remove('dropping');
+    var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+    if(f) openRafuFile(f);
+  });
 
   /* ---------- boot ---------- */
   var resizeTimer=null;
