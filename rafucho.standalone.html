@@ -19,6 +19,7 @@
 
 
 
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
@@ -143,8 +144,18 @@ body.editing .chrome{display:none}
 .pg,.stile{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .pg{touch-action:pan-y}
 .stile{touch-action:pan-x}
-.pg.dragging,.stile.dragging{opacity:.9;transform:scale(1.07);box-shadow:0 10px 24px rgba(0,0,0,.3);border-color:var(--accent);z-index:2;cursor:grabbing}
-@media (prefers-reduced-motion:no-preference){.pg,.stile{transition:transform .12s,box-shadow .12s}}
+/* 長押し中：少し沈んで「つかめそう」に見せる */
+.pg.pressing,.stile.pressing{transform:scale(.94);transition:transform .3s ease}
+/* つかんだページがあった場所：点線の空き枠 */
+.pg.slot,.stile.slot{background:transparent;border:2px dashed var(--accent);box-shadow:none}
+.pg.slot>*,.stile.slot>*{visibility:hidden}
+/* 指についてくるページ */
+.ghost{position:fixed;z-index:40;pointer-events:none;margin:0;border:2px solid var(--accent) !important;border-radius:8px;
+  box-shadow:0 18px 40px rgba(0,0,0,.35),0 4px 10px rgba(0,0,0,.2);transform-origin:50% 50%;
+  transform:scale(1.12) rotate(-3deg);transition:transform .16s ease,left .18s ease,top .18s ease}
+.ghost.lifting{transform:scale(1) rotate(0)}
+.ghost.moving{transition:transform .16s ease}
+body.sorting,body.sorting *{cursor:grabbing !important}
 body.strip-on .dock{bottom:calc(var(--stripH) + 10px + env(safe-area-inset-bottom))}
 body.strip-on #pop{bottom:calc(var(--stripH) + 78px + env(safe-area-inset-bottom))}
 body.strip-on #dockOpen{bottom:calc(var(--stripH) + 10px + env(safe-area-inset-bottom))}
@@ -300,7 +311,7 @@ body.viewing #stage{cursor:default}
       <button class="btn primary" id="mExport" type="button">書き出し</button>
       <button class="btn" id="mClose" type="button">閉じる</button>
     </div>
-    <p style="margin:0;font-size:12px">バージョン 2026-11-04a（ページの並べ替え）</p>
+    <p style="margin:0;font-size:12px">バージョン 2026-11-04b（並べ替えの手ざわり）</p>
   </div>
 </div>
 
@@ -972,41 +983,80 @@ body.viewing #stage{cursor:default}
   // 一覧の中でページをつかんで動かす（指は長押し、マウス・ペンは少し動かすとつかむ）
   function makeSortable(box,itemSel,axis){
     var st=null, justDragged=false;
+    var calm=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     function items(){return $$('#'+box.id+' '+itemSel).filter(function(el){return !el.classList.contains('add');});}
-    function begin(){
+    // 並びが変わったとき、ほかのページが新しい場所へすっと動くように見せる
+    function flip(fn){
+      var list=items(), before=list.map(function(el){return el.getBoundingClientRect();});
+      fn();
+      if(calm) return;
+      list.forEach(function(el,i){
+        if(st&&el===st.el) return;
+        var a=before[i], b=el.getBoundingClientRect(), dx=a.left-b.left, dy=a.top-b.top;
+        if(!dx&&!dy) return;
+        el._animUntil=performance.now()+240; // 動いている最中のページは、行き先の判定に使わない
+        el.style.transition='none';el.style.transform='translate('+dx+'px,'+dy+'px)';
+        requestAnimationFrame(function(){requestAnimationFrame(function(){
+          el.style.transition='transform .2s ease';el.style.transform='';
+          setTimeout(function(){el.style.transition='';},220);
+        });});
+      });
+    }
+    function placeGhost(x,y){
+      st.ghost.style.left=(x-st.ox)+'px';st.ghost.style.top=(y-st.oy)+'px';
+    }
+    function begin(x,y){
       st.drag=true;st.from=items().indexOf(st.el);
-      st.el.classList.add('dragging');
+      st.el.classList.remove('pressing');
+      var r=st.el.getBoundingClientRect();
+      st.ox=st.x-r.left;st.oy=st.y-r.top;
+      // つかんだページの複製を作って指に追従させる（絵も写す）
+      var g=st.el.cloneNode(true), oc=st.el.querySelector('canvas'), gc=g.querySelector('canvas');
+      if(oc&&gc){gc.width=oc.width;gc.height=oc.height;gc.getContext('2d').drawImage(oc,0,0);}
+      g.classList.add('ghost','lifting');g.removeAttribute('aria-current');g.setAttribute('aria-hidden','true');
+      g.style.width=r.width+'px';g.style.height=r.height+'px';
+      st.ghost=g;document.body.appendChild(g);
+      placeGhost(x,y);
+      requestAnimationFrame(function(){if(st&&st.ghost===g){g.classList.remove('lifting');}});
+      setTimeout(function(){if(st&&st.ghost===g) g.classList.add('moving');},170);
+      st.el.classList.add('slot');
+      document.body.classList.add('sorting');
       try{box.setPointerCapture(st.id);}catch(err){}
     }
     box.addEventListener('pointerdown',function(e){
       var el=e.target.closest(itemSel);
       if(!el||!box.contains(el)||el.classList.contains('add')) return;
       if(e.pointerType==='mouse'&&e.button!==0) return;
-      st={el:el,id:e.pointerId,x:e.clientX,y:e.clientY,drag:false,type:e.pointerType,timer:null};
-      if(e.pointerType==='touch') st.timer=setTimeout(function(){if(st&&!st.drag) begin();},300);
+      st={el:el,id:e.pointerId,x:e.clientX,y:e.clientY,lx:e.clientX,ly:e.clientY,drag:false,type:e.pointerType,timer:null};
+      if(e.pointerType==='touch'){
+        el.classList.add('pressing');
+        st.timer=setTimeout(function(){if(st&&!st.drag) begin(st.lx,st.ly);},320);
+      }
     });
     box.addEventListener('pointermove',function(e){
       if(!st||e.pointerId!==st.id) return;
+      st.lx=e.clientX;st.ly=e.clientY;
       var dist=Math.hypot(e.clientX-st.x,e.clientY-st.y);
       if(!st.drag){
-        if(st.type!=='touch'&&dist>8) begin();
-        else if(st.type==='touch'&&dist>10){clearTimeout(st.timer);st=null;}
+        if(st.type!=='touch'&&dist>6) begin(e.clientX,e.clientY);
+        else if(st.type==='touch'&&dist>10){clearTimeout(st.timer);st.el.classList.remove('pressing');st=null;}
         return;
       }
       e.preventDefault();
+      placeGhost(e.clientX,e.clientY);
       var under=document.elementFromPoint(e.clientX,e.clientY);
       var t=under&&under.closest?under.closest(itemSel):null;
-      if(t&&t!==st.el&&box.contains(t)&&!t.classList.contains('add')){
+      if(t&&t!==st.el&&box.contains(t)&&!t.classList.contains('add')&&!(t._animUntil>performance.now())){
         var list=items(), ti=list.indexOf(t), si=list.indexOf(st.el);
-        if(ti>si) t.after(st.el); else t.before(st.el);
+        flip(function(){if(ti>si) t.after(st.el); else t.before(st.el);});
       }
       // 端に近づいたら自動でスクロール
-      var r=box.getBoundingClientRect(), edge=36, sp=14;
+      var edge=40, sp=14;
       if(axis==='x'){
+        var r=box.getBoundingClientRect();
         if(e.clientX<r.left+edge) box.scrollLeft-=sp; else if(e.clientX>r.right-edge) box.scrollLeft+=sp;
       }else{
-        var sc=box.closest('.scroll')||box;
-        var rs=sc.getBoundingClientRect();
+        var sc=box.closest('.scroll')||box, rs=sc.getBoundingClientRect();
         if(e.clientY<rs.top+edge) sc.scrollTop-=sp; else if(e.clientY>rs.bottom-edge) sc.scrollTop+=sp;
       }
     });
@@ -1014,17 +1064,29 @@ body.viewing #stage{cursor:default}
       if(!st||e.pointerId!==st.id) return;
       clearTimeout(st.timer);
       var s0=st;st=null;
+      s0.el.classList.remove('pressing');
       if(!s0.drag) return;
-      s0.el.classList.remove('dragging');
+      document.body.classList.remove('sorting');
       justDragged=true;setTimeout(function(){justDragged=false;},80);
       var to=items().indexOf(s0.el);
-      if(to!==s0.from&&to>=0) movePage(s0.from,to);
-      else if(box.id==='strip') buildStrip();
+      // 指についていたページを、空き枠へ吸い込ませてから確定する
+      var r=s0.el.getBoundingClientRect(), g=s0.ghost;
+      var finish=function(){
+        if(g&&g.parentNode) g.remove();
+        s0.el.classList.remove('slot');
+        if(to!==s0.from&&to>=0) movePage(s0.from,to);
+        else if(box.id==='strip') buildStrip();
+      };
+      if(g&&!calm){
+        g.classList.remove('moving');
+        g.style.left=r.left+'px';g.style.top=r.top+'px';g.style.transform='scale(1) rotate(0)';
+        setTimeout(finish,190);
+      }else finish();
     }
     box.addEventListener('pointerup',end);
     box.addEventListener('pointercancel',end);
     // つかんでいる間は画面をスクロールさせない
-    box.addEventListener('touchmove',function(e){if(st&&st.drag&&e.cancelable) e.preventDefault();},{passive:false});
+    box.addEventListener('touchmove',function(e){if(st&&(st.drag||st.type==='touch')&&st.drag&&e.cancelable) e.preventDefault();},{passive:false});
     box.addEventListener('contextmenu',function(e){if(e.target.closest(itemSel)) e.preventDefault();});
     // 動かした直後のタップ（ページを開く）は無視する
     box.addEventListener('click',function(e){if(justDragged){e.stopPropagation();e.preventDefault();}},true);
