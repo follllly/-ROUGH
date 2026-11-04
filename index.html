@@ -18,6 +18,7 @@
 
 
 
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&display=swap" rel="stylesheet">
@@ -138,6 +139,12 @@ body.editing .chrome{display:none}
 .stile[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .stile span{position:absolute;left:3px;bottom:2px;font-size:10px;line-height:1;background:rgba(255,255,255,.88);color:#222;border-radius:3px;padding:2px 4px}
 .stile.add{width:52px;display:grid;place-items:center;font-size:22px;color:var(--muted);background:var(--bg)}
+/* page reordering */
+.pg,.stile{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.pg{touch-action:pan-y}
+.stile{touch-action:pan-x}
+.pg.dragging,.stile.dragging{opacity:.9;transform:scale(1.07);box-shadow:0 10px 24px rgba(0,0,0,.3);border-color:var(--accent);z-index:2;cursor:grabbing}
+@media (prefers-reduced-motion:no-preference){.pg,.stile{transition:transform .12s,box-shadow .12s}}
 body.strip-on .dock{bottom:calc(var(--stripH) + 10px + env(safe-area-inset-bottom))}
 body.strip-on #pop{bottom:calc(var(--stripH) + 78px + env(safe-area-inset-bottom))}
 body.strip-on #dockOpen{bottom:calc(var(--stripH) + 10px + env(safe-area-inset-bottom))}
@@ -223,7 +230,12 @@ body.viewing #stage{cursor:default}
 <div id="pageSheet" class="sheet" role="dialog" aria-modal="true" aria-label="ページ">
   <div class="dlg">
     <h2>ページ</h2>
+    <p>ページを長押し（マウスやペンはそのまま）してドラッグすると、順番を入れ替えられます。下の帯でも同じように動かせます。</p>
     <div class="scroll"><div id="pgGrid"></div></div>
+    <div class="row">
+      <button class="btn" id="pgLeft" type="button" aria-label="今のページを1つ前へ">◀ 前へ移動</button>
+      <button class="btn" id="pgRight" type="button" aria-label="今のページを1つ後ろへ">後ろへ移動 ▶</button>
+    </div>
     <div class="row">
       <button class="btn primary" id="pgAdd" type="button">＋ 新しいページ</button>
       <button class="btn" id="pgDup" type="button">複製</button>
@@ -288,7 +300,7 @@ body.viewing #stage{cursor:default}
       <button class="btn primary" id="mExport" type="button">書き出し</button>
       <button class="btn" id="mClose" type="button">閉じる</button>
     </div>
-    <p style="margin:0;font-size:12px">バージョン 2026-10-31c（ペンの反応を改善）</p>
+    <p style="margin:0;font-size:12px">バージョン 2026-11-04a（ページの並べ替え）</p>
   </div>
 </div>
 
@@ -941,6 +953,84 @@ body.viewing #stage{cursor:default}
     });
   }
   $('#bPages').addEventListener('click',function(){buildGrid();openSheet('pageSheet');});
+
+  /* ---------- page reordering ---------- */
+  // from番目のページをto番目へ動かす。今開いているページはそのまま開いておく
+  function movePage(from,to){
+    var d=doc();
+    if(from===to||from<0||to<0||from>=d.pages.length||to>=d.pages.length) return;
+    var curPg=d.pages[d.cur];
+    var pg=d.pages.splice(from,1)[0];
+    d.pages.splice(to,0,pg);
+    d.cur=d.pages.indexOf(curPg);
+    save();syncUI();
+    if($('#pageSheet').classList.contains('open')) buildGrid();
+  }
+  $('#pgLeft').addEventListener('click',function(){var c=doc().cur;if(c>0) movePage(c,c-1);else toast('すでに最初のページです');});
+  $('#pgRight').addEventListener('click',function(){var d=doc(),c=d.cur;if(c<d.pages.length-1) movePage(c,c+1);else toast('すでに最後のページです');});
+
+  // 一覧の中でページをつかんで動かす（指は長押し、マウス・ペンは少し動かすとつかむ）
+  function makeSortable(box,itemSel,axis){
+    var st=null, justDragged=false;
+    function items(){return $$('#'+box.id+' '+itemSel).filter(function(el){return !el.classList.contains('add');});}
+    function begin(){
+      st.drag=true;st.from=items().indexOf(st.el);
+      st.el.classList.add('dragging');
+      try{box.setPointerCapture(st.id);}catch(err){}
+    }
+    box.addEventListener('pointerdown',function(e){
+      var el=e.target.closest(itemSel);
+      if(!el||!box.contains(el)||el.classList.contains('add')) return;
+      if(e.pointerType==='mouse'&&e.button!==0) return;
+      st={el:el,id:e.pointerId,x:e.clientX,y:e.clientY,drag:false,type:e.pointerType,timer:null};
+      if(e.pointerType==='touch') st.timer=setTimeout(function(){if(st&&!st.drag) begin();},300);
+    });
+    box.addEventListener('pointermove',function(e){
+      if(!st||e.pointerId!==st.id) return;
+      var dist=Math.hypot(e.clientX-st.x,e.clientY-st.y);
+      if(!st.drag){
+        if(st.type!=='touch'&&dist>8) begin();
+        else if(st.type==='touch'&&dist>10){clearTimeout(st.timer);st=null;}
+        return;
+      }
+      e.preventDefault();
+      var under=document.elementFromPoint(e.clientX,e.clientY);
+      var t=under&&under.closest?under.closest(itemSel):null;
+      if(t&&t!==st.el&&box.contains(t)&&!t.classList.contains('add')){
+        var list=items(), ti=list.indexOf(t), si=list.indexOf(st.el);
+        if(ti>si) t.after(st.el); else t.before(st.el);
+      }
+      // 端に近づいたら自動でスクロール
+      var r=box.getBoundingClientRect(), edge=36, sp=14;
+      if(axis==='x'){
+        if(e.clientX<r.left+edge) box.scrollLeft-=sp; else if(e.clientX>r.right-edge) box.scrollLeft+=sp;
+      }else{
+        var sc=box.closest('.scroll')||box;
+        var rs=sc.getBoundingClientRect();
+        if(e.clientY<rs.top+edge) sc.scrollTop-=sp; else if(e.clientY>rs.bottom-edge) sc.scrollTop+=sp;
+      }
+    });
+    function end(e){
+      if(!st||e.pointerId!==st.id) return;
+      clearTimeout(st.timer);
+      var s0=st;st=null;
+      if(!s0.drag) return;
+      s0.el.classList.remove('dragging');
+      justDragged=true;setTimeout(function(){justDragged=false;},80);
+      var to=items().indexOf(s0.el);
+      if(to!==s0.from&&to>=0) movePage(s0.from,to);
+      else if(box.id==='strip') buildStrip();
+    }
+    box.addEventListener('pointerup',end);
+    box.addEventListener('pointercancel',end);
+    // つかんでいる間は画面をスクロールさせない
+    box.addEventListener('touchmove',function(e){if(st&&st.drag&&e.cancelable) e.preventDefault();},{passive:false});
+    box.addEventListener('contextmenu',function(e){if(e.target.closest(itemSel)) e.preventDefault();});
+    // 動かした直後のタップ（ページを開く）は無視する
+    box.addEventListener('click',function(e){if(justDragged){e.stopPropagation();e.preventDefault();}},true);
+  }
+  makeSortable($('#pgGrid'),'.pg','y');
+  makeSortable($('#strip'),'.stile','x');
   $('#pgAdd').addEventListener('click',function(){closeSheet('pageSheet');addPageAfter();});
   $('#pgDup').addEventListener('click',function(){
     var pg=page(), items=pg.items.slice();
